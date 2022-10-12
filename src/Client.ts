@@ -4,6 +4,7 @@ import LocalAuthStore      from '@/stores/LocalAuthStore';
 import Settings            from '@/services/Settings';
 import Admins              from '@/services/Admins';
 import Users               from '@/services/Users';
+import Views               from './services/Views';
 import Collections         from '@/services/Collections';
 import Records             from '@/services/Records';
 import Logs                from '@/services/Logs';
@@ -98,6 +99,12 @@ export default class Client {
      */
     readonly records: Records;
 
+    readonly views: Views;
+
+    /**
+     * An instance of the service that handles the **Record APIs**.
+     */
+
     /**
      * An instance of the service that handles the **Log APIs**.
      */
@@ -122,6 +129,7 @@ export default class Client {
         // services
         this.admins      = new Admins(this);
         this.users       = new Users(this);
+        this.views = new Views(this);
         this.records     = new Records(this);
         this.collections = new Collections(this);
         this.logs        = new Logs(this);

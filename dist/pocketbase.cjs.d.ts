@@ -405,6 +405,18 @@ declare class SchemaField {
         [key: string]: any;
     }): void;
 }
+declare class View extends BaseModel {
+    name: string;
+    schema: Array<SchemaField>;
+    listRule: null | string;
+    sql: string;
+    /**
+     * @inheritdoc
+     */
+    load(data: {
+        [key: string]: any;
+    }): void;
+}
 declare class Collection extends BaseModel {
     name: string;
     schema: Array<SchemaField>;
@@ -420,6 +432,68 @@ declare class Collection extends BaseModel {
     load(data: {
         [key: string]: any;
     }): void;
+}
+declare class ViewRecord {
+    constructor(data?: {
+        [key: string]: any;
+    });
+    [key: string]: any;
+    /**
+     * @inheritdoc
+     */
+    load(data: {
+        [key: string]: any;
+    }): void;
+    clone(): ViewRecord;
+    /**
+     * Exports all model properties as a new plain object.
+     */
+    export(): {
+        [key: string]: any;
+    };
+}
+declare class LogRequest extends BaseModel {
+    url: string;
+    method: string;
+    status: number;
+    auth: string;
+    remoteIp: string;
+    userIp: string;
+    referer: string;
+    userAgent: string;
+    meta: null | {
+        [key: string]: any;
+    };
+    /**
+     * @inheritdoc
+     */
+    load(data: {
+        [key: string]: any;
+    }): void;
+}
+declare class Views extends CrudService<View> {
+    /**
+     * @inheritdoc
+     */
+    decode(data: {
+        [key: string]: any;
+    }): View;
+    /**
+     * @inheritdoc */
+    baseCrudPath(): string;
+    getRecordsFullList(viewName: string, batchSize?: number, queryParams?: {}): Promise<Array<ViewRecord>>;
+    /**
+     * Returns paginated items list.
+     */
+    getRecordsList(viewName: string, page?: number, perPage?: number, queryParams?: {}): Promise<ViewRecordListResult>;
+}
+declare class ViewRecordListResult {
+    page: number;
+    perPage: number;
+    totalItems: number;
+    totalPages: number;
+    items: Array<ViewRecord>;
+    constructor(page: number, perPage: number, totalItems: number, totalPages: number, items: Array<ViewRecord>);
 }
 declare class Collections extends CrudService<Collection> {
     /**
@@ -486,25 +560,6 @@ declare class Records extends SubCrudService<Record> {
      * Builds and returns an absolute record file url.
      */
     getFileUrl(record: Record, filename: string, queryParams?: {}): string;
-}
-declare class LogRequest extends BaseModel {
-    url: string;
-    method: string;
-    status: number;
-    auth: string;
-    remoteIp: string;
-    userIp: string;
-    referer: string;
-    userAgent: string;
-    meta: null | {
-        [key: string]: any;
-    };
-    /**
-     * @inheritdoc
-     */
-    load(data: {
-        [key: string]: any;
-    }): void;
 }
 type HourlyStats = {
     total: number;
@@ -640,6 +695,10 @@ declare class Client {
      * An instance of the service that handles the **Record APIs**.
      */
     readonly records: Records;
+    readonly views: Views;
+    /**
+     * An instance of the service that handles the **Record APIs**.
+     */
     /**
      * An instance of the service that handles the **Log APIs**.
      */

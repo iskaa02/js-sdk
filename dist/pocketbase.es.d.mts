@@ -405,6 +405,42 @@ declare class SchemaField {
         [key: string]: any;
     }): void;
 }
+declare class View extends BaseModel {
+    name: string;
+    schema: Array<SchemaField>;
+    listRule: null | string;
+    sql: string;
+    /**
+     * @inheritdoc
+     */
+    load(data: {
+        [key: string]: any;
+    }): void;
+}
+declare class Views extends CrudService<View> {
+    /**
+     * @inheritdoc
+     */
+    decode(data: {
+        [key: string]: any;
+    }): View;
+    /**
+     * @inheritdoc */
+    baseCrudPath(): string;
+    getRecordsFullList(viewName: string, batchSize?: number, queryParams?: {}): Promise<Array<ViewRecord>>;
+    /**
+     * Returns paginated items list.
+     */
+    getRecordsList(viewName: string, page?: number, perPage?: number, queryParams?: {}): Promise<ViewRecordListResult>;
+}
+declare class ViewRecordListResult {
+    page: number;
+    perPage: number;
+    totalItems: number;
+    totalPages: number;
+    items: Array<ViewRecord>;
+    constructor(page: number, perPage: number, totalItems: number, totalPages: number, items: Array<ViewRecord>);
+}
 declare class Collection extends BaseModel {
     name: string;
     schema: Array<SchemaField>;
@@ -640,6 +676,10 @@ declare class Client {
      * An instance of the service that handles the **Record APIs**.
      */
     readonly records: Records;
+    readonly views: Views;
+    /**
+     * An instance of the service that handles the **Record APIs**.
+     */
     /**
      * An instance of the service that handles the **Log APIs**.
      */
@@ -764,4 +804,23 @@ declare class LocalAuthStore extends BaseAuthStore {
      */
     private _storageRemove;
 }
-export { Client as default, ClientResponseError, BaseAuthStore, LocalAuthStore, ExternalAuth, User, Admin, Collection, Record, LogRequest, SchemaField };
+declare class ViewRecord {
+    constructor(data?: {
+        [key: string]: any;
+    });
+    [key: string]: any;
+    /**
+     * @inheritdoc
+     */
+    load(data: {
+        [key: string]: any;
+    }): void;
+    clone(): ViewRecord;
+    /**
+     * Exports all model properties as a new plain object.
+     */
+    export(): {
+        [key: string]: any;
+    };
+}
+export { Client as default, ClientResponseError, BaseAuthStore, LocalAuthStore, ExternalAuth, User, Admin, Collection, View, Record, ViewRecord, LogRequest, SchemaField };
