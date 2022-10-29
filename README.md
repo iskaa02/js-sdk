@@ -176,7 +176,7 @@ BaseAuthStore {
     // main methods
     clear()            // "logout" the authenticated User or Admin
     save(token, model) // update the store with the new auth data
-    onChange(callback) // register a callback that will be called on store change
+    onChange(callback, fireImmediately = false) // register a callback that will be called on store change
 
     // cookie parse and serialize helpers
     loadFromCookie(cookieHeader, key = 'pb_auth')
@@ -188,11 +188,19 @@ To _"logout"_ an authenticated user or admin, you can just call `client.authStor
 
 To _"listen"_ for changes in the auth store, you can register a new listener via `client.authStore.onChange`, eg:
 ```js
-const removeListener = client.authStore.onChange((token, model) => {
-    console.log('New store data:', token, model)
+// triggered everytime on store change
+const removeListener1 = client.authStore.onChange((token, model) => {
+    console.log('New store data 1:', token, model)
 });
 
-removeListener(); // (optional) removes the attached listener function
+// triggered once right after registration and everytime on store change
+const removeListener2 = client.authStore.onChange((token, model) => {
+    console.log('New store data 2:', token, model)
+}, true);
+
+// (optional) removes the attached listeners
+removeListener1();
+removeListener2();
 ```
 
 If you want to create your own `AuthStore`, you can extend [`BaseAuthStore`](https://github.com/pocketbase/js-sdk/blob/master/src/stores/BaseAuthStore.ts) and pass the new custom instance as constructor argument to the client:
@@ -394,8 +402,52 @@ And then in your component you could access it like this:
   })
 </script>
 ```
+</details>
 
-> For Nuxt 2 you could use similar approach, but instead of `nuxtApp` you could use a store state to store/create the local `PocketBase` instance.
+<details>
+  <summary><strong>Nuxt 2</strong></summary>
+
+One way to integrate with Nuxt 2 SSR could be to create the PocketBase client in a [nuxt plugin](https://nuxtjs.org/docs/directory-structure/plugins#plugins-directory) and provide it as a helper to the `$root` context:
+
+```js
+// plugins/pocketbase.js
+import PocketBase from  'pocketbase';
+
+export default (ctx, inject) => {
+  const client = new PocketBase('http://127.0.0.1:8090');
+
+  // load the store data from the request cookie string
+  client.authStore.loadFromCookie(ctx.req?.headers?.cookie || '');
+
+  // send back the default 'pb_auth' cookie to the client with the latest store state
+  client.authStore.onChange(() => {
+    ctx.res?.setHeader('set-cookie', client.authStore.exportToCookie());
+  });
+
+  inject('pocketbase', client);
+};
+```
+
+And then in your component you could access it like this:
+
+```html
+<template>
+  <div>
+    Show: {{ demos }}
+  </div>
+</template>
+
+<script>
+  export default {
+    async asyncData({ $pocketbase }) {
+      // fetch and return all "demo" records...
+      const demos = await $pocketbase.records.getFullList('demo');
+
+      return { demos }
+    }
+  }
+</script>
+```
 </details>
 
 <details>

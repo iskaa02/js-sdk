@@ -132,7 +132,7 @@ export default abstract class BaseAuthStore {
             if (this.model instanceof User) {
                 rawData.model.verified = this.model.verified;
             }
-            result = cookieSerialize(key, JSON.stringify(rawData), options)
+            result = cookieSerialize(key, JSON.stringify(rawData), options);
         }
 
         return result;
@@ -141,10 +141,17 @@ export default abstract class BaseAuthStore {
     /**
      * Register a callback function that will be called on store change.
      *
+     * You can set the `fireImmediately` argument to true in order to invoke
+     * the provided callback right after registration.
+     *
      * Returns a removal function that you could call to "unsubscribe" from the changes.
      */
-    onChange(callback: () => void): () => void {
+    onChange(callback: onChangeFunc, fireImmediately = false): () => void {
         this._onChangeCallbacks.push(callback);
+
+        if (fireImmediately) {
+            callback(this.token, this.model);
+        }
 
         return () => {
             for (let i = this._onChangeCallbacks.length - 1; i >= 0; i--) {
