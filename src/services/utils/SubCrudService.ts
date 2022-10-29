@@ -11,36 +11,36 @@ export default abstract class SubCrudService<M extends BaseModel> extends BaseCr
     /**
      * Returns a promise with all list items batch fetched at once.
      */
-    getFullList(sub: string, batchSize = 100, queryParams = {}): Promise<Array<M>> {
-        return this._getFullList(this.baseCrudPath(sub), batchSize, queryParams);
+    getFullList<T={}>(sub: string, batchSize = 100, queryParams = {}): Promise<Array<T&M>> {
+        return this._getFullList(this.baseCrudPath(sub), batchSize, queryParams) as Promise<Array<T&M>>;
     }
 
     /**
      * Returns paginated items list.
      */
-    getList(sub: string, page = 1, perPage = 30, queryParams = {}): Promise<ListResult<M>> {
-        return this._getList(this.baseCrudPath(sub), page, perPage, queryParams);
+    getList<T={}>(sub: string, page = 1, perPage = 30, queryParams = {}): Promise<ListResult<T&M>> {
+        return this._getList(this.baseCrudPath(sub), page, perPage, queryParams)as Promise<ListResult<T&M>>;
     }
 
     /**
      * Returns single item by its id.
      */
-    getOne(sub: string, id: string, queryParams = {}): Promise<M> {
-        return this._getOne(this.baseCrudPath(sub), id, queryParams);
+    getOne<T={}>(sub: string, id: string, queryParams = {}): Promise<T&M> {
+        return this._getOne(this.baseCrudPath(sub), id, queryParams) as Promise<T&M>;
     }
 
     /**
      * Creates a new item.
      */
-    create(sub: string, bodyParams = {}, queryParams = {}): Promise<M> {
-        return this._create(this.baseCrudPath(sub), bodyParams, queryParams);
+    create<T={}>(sub: string, bodyParams = {}, queryParams = {}): Promise<T&M> {
+        return this._create(this.baseCrudPath(sub), bodyParams, queryParams)as Promise<T&M>;
     }
 
     /**
      * Updates an existing item by its id.
      */
-    update(sub: string, id: string, bodyParams = {}, queryParams = {}): Promise<M> {
-        return this._update(this.baseCrudPath(sub), id, bodyParams, queryParams);
+    update<T={}>(sub: string, id: string, bodyParams = {}, queryParams = {}): Promise<T&M> {
+        return this._update(this.baseCrudPath(sub), id, bodyParams, queryParams)as Promise<T&M>;
     }
 
     /**

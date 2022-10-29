@@ -489,23 +489,23 @@ declare abstract class SubCrudService<M extends BaseModel> extends BaseCrudServi
     /**
      * Returns a promise with all list items batch fetched at once.
      */
-    getFullList(sub: string, batchSize?: number, queryParams?: {}): Promise<Array<M>>;
+    getFullList<T = {}>(sub: string, batchSize?: number, queryParams?: {}): Promise<Array<T & M>>;
     /**
      * Returns paginated items list.
      */
-    getList(sub: string, page?: number, perPage?: number, queryParams?: {}): Promise<ListResult<M>>;
+    getList<T = {}>(sub: string, page?: number, perPage?: number, queryParams?: {}): Promise<ListResult<T & M>>;
     /**
      * Returns single item by its id.
      */
-    getOne(sub: string, id: string, queryParams?: {}): Promise<M>;
+    getOne<T = {}>(sub: string, id: string, queryParams?: {}): Promise<T & M>;
     /**
      * Creates a new item.
      */
-    create(sub: string, bodyParams?: {}, queryParams?: {}): Promise<M>;
+    create<T = {}>(sub: string, bodyParams?: {}, queryParams?: {}): Promise<T & M>;
     /**
      * Updates an existing item by its id.
      */
-    update(sub: string, id: string, bodyParams?: {}, queryParams?: {}): Promise<M>;
+    update<T = {}>(sub: string, id: string, bodyParams?: {}, queryParams?: {}): Promise<T & M>;
     /**
      * Deletes an existing item by its id.
      */
