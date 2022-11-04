@@ -1,6 +1,6 @@
 {
     "version": "0.7.4-views",
-    "name": "pocketbase",
+    "name": "@iskaa02/pocketbase",
     "description": "Modified PocketBase JavaScript SDK",
     "author": "iskaa02",
     "license": "MIT",
@@ -25,7 +25,7 @@
         "pocketbase-sdk"
     ],
     "scripts": {
-        "build": "rm -rf dist && rollup -c && npm pack",
+        "build": "rm -rf dist && rollup -c",
         "dev": "rollup -c -w",
         "test": "env TS_NODE_PROJECT='tsconfig-test.json' mocha 'tests/**/*.spec.ts' --require=ts-node/register",
         "prepublishOnly": "npm run build"
