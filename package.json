@@ -1,12 +1,12 @@
 {
-    "version": "0.7.4",
+    "version": "0.7.4-views",
     "name": "pocketbase",
-    "description": "PocketBase JavaScript SDK",
-    "author": "Gani Georgiev",
+    "description": "Modified PocketBase JavaScript SDK",
+    "author": "iskaa02",
     "license": "MIT",
     "repository": {
         "type": "git",
-        "url": "git://github.com/pocketbase/js-sdk.git"
+        "url": "git://github.com/iskaa02/js-sdk.git"
     },
     "exports": {
         ".": "./dist/pocketbase.es.mjs",
