@@ -10,6 +10,7 @@ interface SerializeOptions {
     sameSite?: boolean | string;
 }
 declare abstract class BaseModel {
+    [key: string]: any;
     id: string;
     created: string;
     updated: string;
@@ -27,7 +28,7 @@ declare abstract class BaseModel {
      */
     get isNew(): boolean;
     /**
-     * Robust deep clone of a model.
+     * Creates a deep clone of the current model.
      */
     clone(): BaseModel;
     /**
@@ -38,25 +39,11 @@ declare abstract class BaseModel {
     };
 }
 declare class Record extends BaseModel {
-    [key: string]: any;
-    "@collectionId": string;
-    "@collectionName": string;
-    "@expand": {
-        [key: string]: any;
+    collectionId: string;
+    collectionName: string;
+    expand: {
+        [key: string]: Record | Array<Record>;
     };
-    /**
-     * @inheritdoc
-     */
-    load(data: {
-        [key: string]: any;
-    }): void;
-}
-declare class User extends BaseModel {
-    email: string;
-    verified: boolean;
-    lastResetSentAt: string;
-    lastVerificationSentAt: string;
-    profile: null | Record;
     /**
      * @inheritdoc
      */
@@ -67,7 +54,6 @@ declare class User extends BaseModel {
 declare class Admin extends BaseModel {
     avatar: number;
     email: string;
-    lastResetSentAt: string;
     /**
      * @inheritdoc
      */
@@ -75,14 +61,14 @@ declare class Admin extends BaseModel {
         [key: string]: any;
     }): void;
 }
-type onChangeFunc = (token: string, model: User | Admin | null) => void;
+type OnStoreChangeFunc = (token: string, model: Record | Admin | null) => void;
 /**
  * Base AuthStore class that is intended to be extended by all other
  * PocketBase AuthStore implementations.
  */
 declare abstract class BaseAuthStore {
     protected baseToken: string;
-    protected baseModel: User | Admin | null;
+    protected baseModel: Record | Admin | null;
     private _onChangeCallbacks;
     /**
      * Retrieves the stored token (if any).
@@ -91,15 +77,15 @@ declare abstract class BaseAuthStore {
     /**
      * Retrieves the stored model data (if any).
      */
-    get model(): User | Admin | null;
+    get model(): Record | Admin | null;
     /**
-     * Checks if the store has valid (aka. existing and unexpired) token.
+     * Loosely checks if the store has valid token (aka. existing and unexpired exp claim).
      */
     get isValid(): boolean;
     /**
      * Saves the provided new token and model data in the auth store.
      */
-    save(token: string, model: User | Admin | null): void;
+    save(token: string, model: Record | Admin | null): void;
     /**
      * Removes the stored token and model data form the auth store.
      */
@@ -107,6 +93,26 @@ declare abstract class BaseAuthStore {
     /**
      * Parses the provided cookie string and updates the store state
      * with the cookie's token and model data.
+     *
+     * NB! This function doesn't validate the token or its data.
+     * Usually this isn't a concern if you are interacting only with the
+     * PocketBase API because it has the proper server-side security checks in place,
+     * but if you are using the store `isValid` state for permission controls
+     * in a node server (eg. SSR), then it is recommended to call `authRefresh()`
+     * after loading the cookie to ensure an up-to-date token and model state.
+     * For example:
+     *
+     * ```js
+     * pb.authStore.loadFromCookie("cookie string...");
+     *
+     * try {
+     *     // get an up-to-date auth store state by veryfing and refreshing the loaded auth model (if any)
+     *     pb.authStore.isValid && await pb.collection('users').authRefresh();
+     * } catch (_) {
+     *     // clear the auth store on failed refresh
+     *     pb.authStore.clear();
+     * }
+     * ```
      */
     loadFromCookie(cookie: string, key?: string): void;
     /**
@@ -132,8 +138,16 @@ declare abstract class BaseAuthStore {
      *
      * Returns a removal function that you could call to "unsubscribe" from the changes.
      */
-    onChange(callback: onChangeFunc, fireImmediately?: boolean): () => void;
+    onChange(callback: OnStoreChangeFunc, fireImmediately?: boolean): () => void;
     protected triggerChange(): void;
+}
+declare class ListResult<M = BaseModel> {
+    page: number;
+    perPage: number;
+    totalItems: number;
+    totalPages: number;
+    items: Array<M>;
+    constructor(page: number, perPage: number, totalItems: number, totalPages: number, items: Array<M>);
 }
 /**
  * BaseService class that should be inherited from all API services.
@@ -142,41 +156,29 @@ declare abstract class BaseService {
     readonly client: Client;
     constructor(client: Client);
 }
-declare class Settings extends BaseService {
-    /**
-     * Fetch all available app settings.
-     */
-    getAll(queryParams?: {}): Promise<{
-        [key: string]: any;
-    }>;
-    /**
-     * Bulk updates app settings.
-     */
-    update(bodyParams?: {}, queryParams?: {}): Promise<{
-        [key: string]: any;
-    }>;
-    /**
-     * Performs a S3 storage connection test.
-     */
-    testS3(queryParams?: {}): Promise<boolean>;
-    /**
-     * Sends a test email.
-     *
-     * The possible `emailTemplate` values are:
-     * - verification
-     * - password-reset
-     * - email-change
-     */
-    testEmail(toEmail: string, emailTemplate: string, queryParams?: {}): Promise<boolean>;
+interface BaseQueryParams {
+    [key: string]: any;
+    $autoCancel?: boolean;
+    $cancelKey?: string;
 }
-declare class ListResult<M extends BaseModel> {
-    page: number;
-    perPage: number;
-    totalItems: number;
-    totalPages: number;
-    items: Array<M>;
-    constructor(page: number, perPage: number, totalItems: number, totalPages: number, items: Array<M>);
+interface ListQueryParams extends BaseQueryParams {
+    page?: number;
+    perPage?: number;
+    sort?: string;
+    filter?: string;
 }
+interface RecordQueryParams extends BaseQueryParams {
+    expand?: string;
+}
+interface RecordListQueryParams extends ListQueryParams, RecordQueryParams {
+}
+interface LogStatsQueryParams extends BaseQueryParams {
+    filter?: string;
+}
+interface FileQueryParams extends BaseQueryParams {
+    thumb?: string;
+}
+// @todo since there is no longer need of SubCrudService consider merging with CrudService in v0.9+
 declare abstract class BaseCrudService<M extends BaseModel> extends BaseService {
     /**
      * Response data decoder.
@@ -187,207 +189,89 @@ declare abstract class BaseCrudService<M extends BaseModel> extends BaseService 
     /**
      * Returns a promise with all list items batch fetched at once.
      */
-    protected _getFullList(basePath: string, batchSize?: number, queryParams?: {}): Promise<Array<M>>;
+    protected _getFullList<T = M>(basePath: string, batchSize?: number, queryParams?: ListQueryParams): Promise<Array<T>>;
     /**
      * Returns paginated items list.
      */
-    protected _getList(basePath: string, page?: number, perPage?: number, queryParams?: {}): Promise<ListResult<M>>;
+    protected _getList<T = M>(basePath: string, page?: number, perPage?: number, queryParams?: ListQueryParams): Promise<ListResult<T>>;
     /**
      * Returns single item by its id.
      */
-    protected _getOne(basePath: string, id: string, queryParams?: {}): Promise<M>;
+    protected _getOne<T = M>(basePath: string, id: string, queryParams?: BaseQueryParams): Promise<T>;
+    /**
+     * Returns the first found item by a list filter.
+     *
+     * Internally it calls `_getList(basePath, 1, 1, { filter })` and returns its
+     * first item.
+     *
+     * For consistency with `_getOne`, this method will throw a 404
+     * ClientResponseError if no item was found.
+     */
+    protected _getFirstListItem<T = M>(basePath: string, filter: string, queryParams?: BaseQueryParams): Promise<T>;
     /**
      * Creates a new item.
      */
-    protected _create(basePath: string, bodyParams?: {}, queryParams?: {}): Promise<M>;
+    protected _create<T = M>(basePath: string, bodyParams?: {}, queryParams?: BaseQueryParams): Promise<T>;
     /**
      * Updates an existing item by its id.
      */
-    protected _update(basePath: string, id: string, bodyParams?: {}, queryParams?: {}): Promise<M>;
+    protected _update<T = M>(basePath: string, id: string, bodyParams?: {}, queryParams?: BaseQueryParams): Promise<T>;
     /**
      * Deletes an existing item by its id.
      */
-    protected _delete(basePath: string, id: string, queryParams?: {}): Promise<boolean>;
+    protected _delete(basePath: string, id: string, queryParams?: BaseQueryParams): Promise<boolean>;
 }
 declare abstract class CrudService<M extends BaseModel> extends BaseCrudService<M> {
     /**
      * Base path for the crud actions (without trailing slash, eg. '/admins').
      */
-    abstract baseCrudPath(): string;
+    abstract get baseCrudPath(): string;
     /**
      * Returns a promise with all list items batch fetched at once.
+     *
+     * You can use the generic T to supply a wrapper type of the crud model.
      */
-    getFullList(batchSize?: number, queryParams?: {}): Promise<Array<M>>;
+    getFullList<T = M>(batch?: number, queryParams?: ListQueryParams): Promise<Array<T>>;
     /**
      * Returns paginated items list.
+     *
+     * You can use the generic T to supply a wrapper type of the crud model.
      */
-    getList(page?: number, perPage?: number, queryParams?: {}): Promise<ListResult<M>>;
+    getList<T = M>(page?: number, perPage?: number, queryParams?: ListQueryParams): Promise<ListResult<T>>;
+    /**
+     * Returns the first found item by the specified filter.
+     *
+     * Internally it calls `getList(1, 1, { filter })` and returns the
+     * first found item.
+     *
+     * You can use the generic T to supply a wrapper type of the crud model.
+     *
+     * For consistency with `getOne`, this method will throw a 404
+     * ClientResponseError if no item was found.
+     */
+    getFirstListItem<T = M>(filter: string, queryParams?: BaseQueryParams): Promise<T>;
     /**
      * Returns single item by its id.
+     *
+     * You can use the generic T to supply a wrapper type of the crud model.
      */
-    getOne(id: string, queryParams?: {}): Promise<M>;
+    getOne<T = M>(id: string, queryParams?: BaseQueryParams): Promise<T>;
     /**
      * Creates a new item.
+     *
+     * You can use the generic T to supply a wrapper type of the crud model.
      */
-    create(bodyParams?: {}, queryParams?: {}): Promise<M>;
+    create<T = M>(bodyParams?: {}, queryParams?: BaseQueryParams): Promise<T>;
     /**
      * Updates an existing item by its id.
+     *
+     * You can use the generic T to supply a wrapper type of the crud model.
      */
-    update(id: string, bodyParams?: {}, queryParams?: {}): Promise<M>;
+    update<T = M>(id: string, bodyParams?: {}, queryParams?: BaseQueryParams): Promise<T>;
     /**
      * Deletes an existing item by its id.
      */
-    delete(id: string, queryParams?: {}): Promise<boolean>;
-}
-type AdminAuthResponse = {
-    [key: string]: any;
-    token: string;
-    admin: Admin;
-};
-declare class Admins extends CrudService<Admin> {
-    /**
-     * @inheritdoc
-     */
-    decode(data: {
-        [key: string]: any;
-    }): Admin;
-    /**
-     * @inheritdoc
-     */
-    baseCrudPath(): string;
-    /**
-     * Prepare successful authorize response.
-     */
-    protected authResponse(responseData: any): AdminAuthResponse;
-    /**
-     * Authenticate an admin account by its email and password
-     * and returns a new admin token and data.
-     *
-     * On success this method automatically updates the client's AuthStore data.
-     */
-    authViaEmail(email: string, password: string, bodyParams?: {}, queryParams?: {}): Promise<AdminAuthResponse>;
-    /**
-     * Refreshes the current admin authenticated instance and
-     * returns a new token and admin data.
-     *
-     * On success this method automatically updates the client's AuthStore data.
-     */
-    refresh(bodyParams?: {}, queryParams?: {}): Promise<AdminAuthResponse>;
-    /**
-     * Sends admin password reset request.
-     */
-    requestPasswordReset(email: string, bodyParams?: {}, queryParams?: {}): Promise<boolean>;
-    /**
-     * Confirms admin password reset request.
-     */
-    confirmPasswordReset(passwordResetToken: string, password: string, passwordConfirm: string, bodyParams?: {}, queryParams?: {}): Promise<AdminAuthResponse>;
-}
-declare class ExternalAuth extends BaseModel {
-    userId: string;
-    provider: string;
-    providerId: string;
-    /**
-     * @inheritdoc
-     */
-    load(data: {
-        [key: string]: any;
-    }): void;
-}
-type UserAuthResponse = {
-    [key: string]: any;
-    token: string;
-    user: User;
-};
-type AuthProviderInfo = {
-    name: string;
-    state: string;
-    codeVerifier: string;
-    codeChallenge: string;
-    codeChallengeMethod: string;
-    authUrl: string;
-};
-type AuthMethodsList = {
-    [key: string]: any;
-    emailPassword: boolean;
-    authProviders: Array<AuthProviderInfo>;
-};
-declare class Users extends CrudService<User> {
-    /**
-     * @inheritdoc
-     */
-    decode(data: {
-        [key: string]: any;
-    }): User;
-    /**
-     * @inheritdoc
-     */
-    baseCrudPath(): string;
-    /**
-     * Prepare successful authorization response.
-     */
-    protected authResponse(responseData: any): UserAuthResponse;
-    /**
-     * Returns all available application auth methods.
-     */
-    listAuthMethods(queryParams?: {}): Promise<AuthMethodsList>;
-    /**
-     * Authenticate a user via its email and password.
-     *
-     * On success, this method also automatically updates
-     * the client's AuthStore data and returns:
-     * - new user authentication token
-     * - the authenticated user model record
-     */
-    authViaEmail(email: string, password: string, bodyParams?: {}, queryParams?: {}): Promise<UserAuthResponse>;
-    /**
-     * Authenticate a user via OAuth2 client provider.
-     *
-     * On success, this method also automatically updates
-     * the client's AuthStore data and returns:
-     * - new user authentication token
-     * - the authenticated user model record
-     * - the OAuth2 user profile data (eg. name, email, avatar, etc.)
-     */
-    authViaOAuth2(provider: string, code: string, codeVerifier: string, redirectUrl: string, bodyParams?: {}, queryParams?: {}): Promise<UserAuthResponse>;
-    /**
-     * Refreshes the current user authenticated instance and
-     * returns a new token and user data.
-     *
-     * On success this method also automatically updates the client's AuthStore data.
-     */
-    refresh(bodyParams?: {}, queryParams?: {}): Promise<UserAuthResponse>;
-    /**
-     * Sends user password reset request.
-     */
-    requestPasswordReset(email: string, bodyParams?: {}, queryParams?: {}): Promise<boolean>;
-    /**
-     * Confirms user password reset request.
-     */
-    confirmPasswordReset(passwordResetToken: string, password: string, passwordConfirm: string, bodyParams?: {}, queryParams?: {}): Promise<UserAuthResponse>;
-    /**
-     * Sends user verification email request.
-     */
-    requestVerification(email: string, bodyParams?: {}, queryParams?: {}): Promise<boolean>;
-    /**
-     * Confirms user email verification request.
-     */
-    confirmVerification(verificationToken: string, bodyParams?: {}, queryParams?: {}): Promise<UserAuthResponse>;
-    /**
-     * Sends an email change request to the authenticated user.
-     */
-    requestEmailChange(newEmail: string, bodyParams?: {}, queryParams?: {}): Promise<boolean>;
-    /**
-     * Confirms user new email address.
-     */
-    confirmEmailChange(emailChangeToken: string, password: string, bodyParams?: {}, queryParams?: {}): Promise<UserAuthResponse>;
-    /**
-     * Lists all linked external auth providers for the specified user.
-     */
-    listExternalAuths(userId: string, queryParams?: {}): Promise<Array<ExternalAuth>>;
-    /**
-     * Unlink a single external auth provider from the specified user.
-     */
-    unlinkExternalAuth(userId: string, provider: string, queryParams?: {}): Promise<boolean>;
+    delete(id: string, queryParams?: BaseQueryParams): Promise<boolean>;
 }
 declare class SchemaField {
     id: string;
@@ -421,8 +305,21 @@ declare class View extends BaseModel {
         [key: string]: any;
     }): void;
 }
+declare class ExternalAuth extends BaseModel {
+    recordId: string;
+    collectionId: string;
+    provider: string;
+    providerId: string;
+    /**
+     * @inheritdoc
+     */
+    load(data: {
+        [key: string]: any;
+    }): void;
+}
 declare class Collection extends BaseModel {
     name: string;
+    type: string;
     schema: Array<SchemaField>;
     system: boolean;
     listRule: null | string;
@@ -430,12 +327,27 @@ declare class Collection extends BaseModel {
     createRule: null | string;
     updateRule: null | string;
     deleteRule: null | string;
+    options: {
+        [key: string]: any;
+    };
     /**
      * @inheritdoc
      */
     load(data: {
         [key: string]: any;
     }): void;
+    /**
+     * Checks if the current model is "base" collection.
+     */
+    get isBase(): boolean;
+    /**
+     * Checks if the current model is "auth" collection.
+     */
+    get isAuth(): boolean;
+    /**
+     * Checks if the current model is "single" collection.
+     */
+    get isSingle(): boolean;
 }
 declare class ViewRecord {
     constructor(data?: {
@@ -465,7 +377,7 @@ declare class LogRequest extends BaseModel {
     userIp: string;
     referer: string;
     userAgent: string;
-    meta: null | {
+    meta: {
         [key: string]: any;
     };
     /**
@@ -474,6 +386,257 @@ declare class LogRequest extends BaseModel {
     load(data: {
         [key: string]: any;
     }): void;
+}
+type UnsubscribeFunc = () => Promise<void>;
+declare class RealtimeService extends BaseService {
+    private clientId;
+    private eventSource;
+    private subscriptions;
+    private lastSentTopics;
+    private connectTimeoutId;
+    private maxConnectTimeout;
+    private reconnectTimeoutId;
+    private reconnectAttempts;
+    private maxReconnectAttempts;
+    private predefinedReconnectIntervals;
+    private pendingConnects;
+    /**
+     * Returns whether the realtime connection has been established.
+     */
+    get isConnected(): boolean;
+    /**
+     * Register the subscription listener.
+     *
+     * You can subscribe multiple times to the same topic.
+     *
+     * If the SSE connection is not started yet,
+     * this method will also initialize it.
+     */
+    subscribe(topic: string, callback: (data: any) => void): Promise<UnsubscribeFunc>;
+    /**
+     * Unsubscribe from all subscription listeners with the specified topic.
+     *
+     * If `topic` is not provided, then this method will unsubscribe
+     * from all active subscriptions.
+     *
+     * This method is no-op if there are no active subscriptions.
+     *
+     * The related sse connection will be autoclosed if after the
+     * unsubscribe operation there are no active subscriptions left.
+     */
+    unsubscribe(topic?: string): Promise<void>;
+    /**
+     * Unsubscribe from all subscription listeners starting with the specified topic prefix.
+     *
+     * This method is no-op if there are no active subscriptions with the specified topic prefix.
+     *
+     * The related sse connection will be autoclosed if after the
+     * unsubscribe operation there are no active subscriptions left.
+     */
+    unsubscribeByPrefix(topicPrefix: string): Promise<void>;
+    /**
+     * Unsubscribe from all subscriptions matching the specified topic and listener function.
+     *
+     * This method is no-op if there are no active subscription with
+     * the specified topic and listener.
+     *
+     * The related sse connection will be autoclosed if after the
+     * unsubscribe operation there are no active subscriptions left.
+     */
+    unsubscribeByTopicAndListener(topic: string, listener: EventListener): Promise<void>;
+    private hasSubscriptionListeners;
+    private submitSubscriptions;
+    private getNonEmptySubscriptionTopics;
+    private addAllSubscriptionListeners;
+    private removeAllSubscriptionListeners;
+    private connect;
+    private initConnect;
+    private hasUnsentSubscriptions;
+    private connectErrorHandler;
+    private disconnect;
+}
+interface RecordAuthResponse<T = Record> {
+    record: T;
+    token: string;
+    meta?: {
+        [key: string]: any;
+    };
+}
+interface AuthProviderInfo {
+    name: string;
+    state: string;
+    codeVerifier: string;
+    codeChallenge: string;
+    codeChallengeMethod: string;
+    authUrl: string;
+}
+interface AuthMethodsList {
+    usernamePassword: boolean;
+    emailPassword: boolean;
+    authProviders: Array<AuthProviderInfo>;
+}
+interface RecordSubscription<T = Record> {
+    action: string;
+    record: T;
+}
+declare class RecordService extends CrudService<Record> {
+    readonly collectionIdOrName: string;
+    constructor(client: Client, collectionIdOrName: string);
+    /**
+     * @inheritdoc
+     */
+    decode<T = Record>(data: {
+        [key: string]: any;
+    }): T;
+    /**
+     * @inheritdoc
+     */
+    get baseCrudPath(): string;
+    /**
+     * Returns the current collection service base path.
+     */
+    get baseCollectionPath(): string;
+    // ---------------------------------------------------------------
+    // Realtime handlers
+    // ---------------------------------------------------------------
+    /**
+     * @deprecated Use subscribe(recordId, callback) instead.
+     *
+     * Subscribe to the realtime changes of a single record in the collection.
+     */
+    subscribeOne<T = Record>(recordId: string, callback: (data: RecordSubscription<T>) => void): Promise<UnsubscribeFunc>;
+    /**
+     * @deprecated This form of subscribe is deprecated. Please use `subscribe("*", callback)`.
+     */
+    subscribe<T = Record>(callback: (data: RecordSubscription<T>) => void): Promise<UnsubscribeFunc>;
+    /**
+     * Subscribe to realtime changes to the specified topic ("*" or record id).
+     *
+     * If `topic` is the wildcard "*", then this method will subscribe to
+     * any record changes in the collection.
+     *
+     * If `topic` is a record id, then this method will subscribe only
+     * to changes of the specified record id.
+     *
+     * It's OK to subscribe multiple times to the same topic.
+     * You can use the returned `UnsubscribeFunc` to remove only a single subscription.
+     * Or use `unsubscribe(topic)` if you want to remove all subscriptions attached to the topic.
+     */
+    subscribe<T = Record>(topic: string, callback: (data: RecordSubscription<T>) => void): Promise<UnsubscribeFunc>;
+    /**
+     * Unsubscribe from all subscriptions of the specified topic
+     * ("*" or record id).
+     *
+     * If `topic` is not set, then this method will unsubscribe from
+     * all subscriptions associated to the current collection.
+     */
+    unsubscribe(topic?: string): Promise<void>;
+    // ---------------------------------------------------------------
+    // Crud handers
+    // ---------------------------------------------------------------
+    /**
+     * @inheritdoc
+     */
+    getFullList<T = Record>(batch?: number, queryParams?: RecordListQueryParams): Promise<Array<T>>;
+    /**
+     * @inheritdoc
+     */
+    getList<T = Record>(page?: number, perPage?: number, queryParams?: RecordListQueryParams): Promise<ListResult<T>>;
+    /**
+     * @inheritdoc
+     */
+    getFirstListItem<T = Record>(filter: string, queryParams?: RecordListQueryParams): Promise<T>;
+    /**
+     * @inheritdoc
+     */
+    getOne<T = Record>(id: string, queryParams?: RecordQueryParams): Promise<T>;
+    /**
+     * @inheritdoc
+     */
+    create<T = Record>(bodyParams?: {}, queryParams?: RecordQueryParams): Promise<T>;
+    /**
+     * @inheritdoc
+     *
+     * If the current `client.authStore.model` matches with the updated id, then
+     * on success the `client.authStore.model` will be updated with the result.
+     */
+    update<T = Record>(id: string, bodyParams?: {}, queryParams?: RecordQueryParams): Promise<T>;
+    /**
+     * @inheritdoc
+     *
+     * If the current `client.authStore.model` matches with the deleted id,
+     * then on success the `client.authStore` will be cleared.
+     */
+    delete(id: string, queryParams?: BaseQueryParams): Promise<boolean>;
+    // ---------------------------------------------------------------
+    // Auth handlers
+    // ---------------------------------------------------------------
+    /**
+     * Prepare successful collection authorization response.
+     */
+    protected authResponse<T = Record>(responseData: any): RecordAuthResponse<T>;
+    /**
+     * Returns all available collection auth methods.
+     */
+    listAuthMethods(queryParams?: BaseQueryParams): Promise<AuthMethodsList>;
+    /**
+     * Authenticate a single auth collection record via its username/email and password.
+     *
+     * On success, this method also automatically updates
+     * the client's AuthStore data and returns:
+     * - the authentication token
+     * - the authenticated record model
+     */
+    authWithPassword<T = Record>(usernameOrEmail: string, password: string, bodyParams?: {}, queryParams?: RecordQueryParams): Promise<RecordAuthResponse<T>>;
+    /**
+     * Authenticate a single auth collection record with OAuth2.
+     *
+     * On success, this method also automatically updates
+     * the client's AuthStore data and returns:
+     * - the authentication token
+     * - the authenticated record model
+     * - the OAuth2 account data (eg. name, email, avatar, etc.)
+     */
+    authWithOAuth2<T = Record>(provider: string, code: string, codeVerifier: string, redirectUrl: string, createData?: {}, bodyParams?: {}, queryParams?: RecordQueryParams): Promise<RecordAuthResponse<T>>;
+    /**
+     * Refreshes the current authenticated record instance and
+     * returns a new token and record data.
+     *
+     * On success this method also automatically updates the client's AuthStore.
+     */
+    authRefresh<T = Record>(bodyParams?: {}, queryParams?: RecordQueryParams): Promise<RecordAuthResponse<T>>;
+    /**
+     * Sends auth record password reset request.
+     */
+    requestPasswordReset(email: string, bodyParams?: {}, queryParams?: BaseQueryParams): Promise<boolean>;
+    /**
+     * Confirms auth record password reset request.
+     */
+    confirmPasswordReset(passwordResetToken: string, password: string, passwordConfirm: string, bodyParams?: {}, queryParams?: BaseQueryParams): Promise<boolean>;
+    /**
+     * Sends auth record verification email request.
+     */
+    requestVerification(email: string, bodyParams?: {}, queryParams?: BaseQueryParams): Promise<boolean>;
+    /**
+     * Confirms auth record email verification request.
+     */
+    confirmVerification(verificationToken: string, bodyParams?: {}, queryParams?: BaseQueryParams): Promise<boolean>;
+    /**
+     * Sends an email change request to the authenticated record model.
+     */
+    requestEmailChange(newEmail: string, bodyParams?: {}, queryParams?: BaseQueryParams): Promise<boolean>;
+    /**
+     * Confirms auth record's new email address.
+     */
+    confirmEmailChange(emailChangeToken: string, password: string, bodyParams?: {}, queryParams?: BaseQueryParams): Promise<boolean>;
+    /**
+     * Lists all linked external auth providers for the specified auth record.
+     */
+    listExternalAuths(recordId: string, queryParams?: BaseQueryParams): Promise<Array<ExternalAuth>>;
+    /**
+     * Unlink a single external auth provider from the specified auth record.
+     */
+    unlinkExternalAuth(recordId: string, provider: string, queryParams?: BaseQueryParams): Promise<boolean>;
 }
 declare class Views extends CrudService<View> {
     /**
@@ -484,7 +647,7 @@ declare class Views extends CrudService<View> {
     }): View;
     /**
      * @inheritdoc */
-    baseCrudPath(): string;
+    get baseCrudPath(): string;
     getRecordsFullList(viewName: string, batchSize?: number, queryParams?: {}): Promise<Array<ViewRecord>>;
     /**
      * Returns paginated items list.
@@ -499,7 +662,101 @@ declare class ViewRecordListResult {
     items: Array<ViewRecord>;
     constructor(page: number, perPage: number, totalItems: number, totalPages: number, items: Array<ViewRecord>);
 }
-declare class Collections extends CrudService<Collection> {
+declare module ViewsWrapper {
+    export { Views };
+}
+import ViewService = ViewsWrapper.Views;
+declare class SettingsService extends BaseService {
+    /**
+     * Fetch all available app settings.
+     */
+    getAll(queryParams?: BaseQueryParams): Promise<{
+        [key: string]: any;
+    }>;
+    /**
+     * Bulk updates app settings.
+     */
+    update(bodyParams?: {}, queryParams?: BaseQueryParams): Promise<{
+        [key: string]: any;
+    }>;
+    /**
+     * Performs a S3 storage connection test.
+     */
+    testS3(queryParams?: BaseQueryParams): Promise<boolean>;
+    /**
+     * Sends a test email.
+     *
+     * The possible `emailTemplate` values are:
+     * - verification
+     * - password-reset
+     * - email-change
+     */
+    testEmail(toEmail: string, emailTemplate: string, queryParams?: BaseQueryParams): Promise<boolean>;
+}
+interface AdminAuthResponse {
+    [key: string]: any;
+    token: string;
+    admin: Admin;
+}
+declare class AdminService extends CrudService<Admin> {
+    /**
+     * @inheritdoc
+     */
+    decode(data: {
+        [key: string]: any;
+    }): Admin;
+    /**
+     * @inheritdoc
+     */
+    get baseCrudPath(): string;
+    // ---------------------------------------------------------------
+    // Post update/delete AuthStore sync
+    // ---------------------------------------------------------------
+    /**
+     * @inheritdoc
+     *
+     * If the current `client.authStore.model` matches with the updated id, then
+     * on success the `client.authStore.model` will be updated with the result.
+     */
+    update<T = Admin>(id: string, bodyParams?: {}, queryParams?: BaseQueryParams): Promise<T>;
+    /**
+     * @inheritdoc
+     *
+     * If the current `client.authStore.model` matches with the deleted id,
+     * then on success the `client.authStore` will be cleared.
+     */
+    delete(id: string, queryParams?: BaseQueryParams): Promise<boolean>;
+    // ---------------------------------------------------------------
+    // Auth handlers
+    // ---------------------------------------------------------------
+    /**
+     * Prepare successful authorize response.
+     */
+    protected authResponse(responseData: any): AdminAuthResponse;
+    /**
+     * Authenticate an admin account with its email and password
+     * and returns a new admin token and data.
+     *
+     * On success this method automatically updates the client's AuthStore data.
+     */
+    authWithPassword(email: string, password: string, bodyParams?: {}, queryParams?: BaseQueryParams): Promise<AdminAuthResponse>;
+    /**
+     * Refreshes the current admin authenticated instance and
+     * returns a new token and admin data.
+     *
+     * On success this method automatically updates the client's AuthStore data.
+     */
+    authRefresh(bodyParams?: {}, queryParams?: BaseQueryParams): Promise<AdminAuthResponse>;
+    /**
+     * Sends admin password reset request.
+     */
+    requestPasswordReset(email: string, bodyParams?: {}, queryParams?: BaseQueryParams): Promise<boolean>;
+    /**
+     * Confirms admin password reset request.
+     */
+    confirmPasswordReset(passwordResetToken: string, password: string, passwordConfirm: string, bodyParams?: {}, queryParams?: BaseQueryParams): Promise<boolean>;
+}
+declare class CollectionService extends CrudService<Collection> {
     /**
      * @inheritdoc
      */
@@ -509,7 +766,7 @@ declare class Collections extends CrudService<Collection> {
     /**
      * @inheritdoc
      */
-    baseCrudPath(): string;
+    get baseCrudPath(): string;
     /**
      * Imports the provided collections.
      *
@@ -517,104 +774,35 @@ declare class Collections extends CrudService<Collection> {
      * that are not present in the imported configuration, WILL BE DELETED
      * (including their related records data)!
      */
-    import(collections: Array<Collection>, deleteMissing?: boolean, queryParams?: {}): Promise<true>;
+    import(collections: Array<Collection>, deleteMissing?: boolean, queryParams?: BaseQueryParams): Promise<true>;
 }
-declare abstract class SubCrudService<M extends BaseModel> extends BaseCrudService<M> {
-    /**
-     * Base path for the crud actions (without trailing slash, eg. '/collections/{:sub}/records').
-     */
-    abstract baseCrudPath(sub: string): string;
-    /**
-     * Returns a promise with all list items batch fetched at once.
-     */
-    getFullList<T = {}>(sub: string, batchSize?: number, queryParams?: {}): Promise<Array<T & M>>;
-    /**
-     * Returns paginated items list.
-     */
-    getList<T = {}>(sub: string, page?: number, perPage?: number, queryParams?: {}): Promise<ListResult<T & M>>;
-    /**
-     * Returns single item by its id.
-     */
-    getOne<T = {}>(sub: string, id: string, queryParams?: {}): Promise<T & M>;
-    /**
-     * Creates a new item.
-     */
-    create<T = {}>(sub: string, bodyParams?: {}, queryParams?: {}): Promise<T & M>;
-    /**
-     * Updates an existing item by its id.
-     */
-    update<T = {}>(sub: string, id: string, bodyParams?: {}, queryParams?: {}): Promise<T & M>;
-    /**
-     * Deletes an existing item by its id.
-     */
-    delete(sub: string, id: string, queryParams?: {}): Promise<boolean>;
-}
-declare class Records extends SubCrudService<Record> {
-    /**
-     * @inheritdoc
-     */
-    decode(data: {
-        [key: string]: any;
-    }): Record;
-    /**
-     * @inheritdoc
-     */
-    baseCrudPath(collectionIdOrName: string): string;
-    /**
-     * Builds and returns an absolute record file url.
-     */
-    getFileUrl(record: Record, filename: string, queryParams?: {}): string;
-}
-type HourlyStats = {
+interface HourlyStats {
     total: number;
     date: string;
-};
-declare class Logs extends BaseService {
+}
+declare class LogService extends BaseService {
     /**
      * Returns paginated logged requests list.
      */
-    getRequestsList(page?: number, perPage?: number, queryParams?: {}): Promise<ListResult<LogRequest>>;
+    getRequestsList(page?: number, perPage?: number, queryParams?: ListQueryParams): Promise<ListResult<LogRequest>>;
     /**
      * Returns a single logged request by its id.
      */
-    getRequest(id: string, queryParams?: {}): Promise<LogRequest>;
+    getRequest(id: string, queryParams?: BaseQueryParams): Promise<LogRequest>;
     /**
      * Returns request logs statistics.
      */
-    getRequestsStats(queryParams?: {}): Promise<Array<HourlyStats>>;
+    getRequestsStats(queryParams?: LogStatsQueryParams): Promise<Array<HourlyStats>>;
 }
-interface MessageData {
-    [key: string]: any;
-    action: string;
-    record: Record;
+interface healthCheckResponse {
+    code: number;
+    message: string;
 }
-interface SubscriptionFunc {
-    (data: MessageData): void;
-}
-declare class Realtime extends BaseService {
-    private clientId;
-    private eventSource;
-    private subscriptions;
+declare class HealthService extends BaseService {
     /**
-     * Inits the sse connection (if not already) and register the subscription.
+     * Checks the health status of the api.
      */
-    subscribe(subscription: string, callback: SubscriptionFunc): Promise<void>;
-    /**
-     * Unsubscribe from a subscription.
-     *
-     * If the `subscription` argument is not set,
-     * then the client will unsubscribe from all registered subscriptions.
-     *
-     * The related sse connection will be autoclosed if after the
-     * unsubscribe operations there are no active subscriptions left.
-     */
-    unsubscribe(subscription?: string): Promise<void>;
-    private submitSubscriptions;
-    private addSubscriptionListeners;
-    private removeSubscriptionListeners;
-    private connectHandler;
-    private connect;
-    private disconnect;
+    check(queryParams?: BaseQueryParams): Promise<healthCheckResponse>;
 }
 /**
  * PocketBase JS Client.
@@ -682,69 +870,55 @@ declare class Client {
     /**
      * An instance of the service that handles the **Settings APIs**.
      */
-    readonly settings: Settings;
+    readonly settings: SettingsService;
     /**
      * An instance of the service that handles the **Admin APIs**.
      */
-    readonly admins: Admins;
-    /**
-     * An instance of the service that handles the **User APIs**.
-     */
-    readonly users: Users;
+    readonly admins: AdminService;
     /**
      * An instance of the service that handles the **Collection APIs**.
      */
-    readonly collections: Collections;
-    /**
-     * An instance of the service that handles the **Record APIs**.
-     */
-    readonly records: Records;
-    readonly views: Views;
+    readonly collections: CollectionService;
+    readonly views: ViewService;
     /**
      * An instance of the service that handles the **Record APIs**.
      */
     /**
      * An instance of the service that handles the **Log APIs**.
      */
-    readonly logs: Logs;
+    readonly logs: LogService;
     /**
      * An instance of the service that handles the **Realtime APIs**.
      */
-    readonly realtime: Realtime;
+    readonly realtime: RealtimeService;
+    /**
+     * An instance of the service that handles the **Health APIs**.
+     */
+    readonly health: HealthService;
     private cancelControllers;
-    constructor(baseUrl?: string, lang?: string, authStore?: BaseAuthStore | null);
+    private recordServices;
+    private enableAutoCancellation;
+    constructor(baseUrl?: string, authStore?: BaseAuthStore | null, lang?: string);
     /**
-     * @deprecated Legacy alias for `this.authStore`.
+     * Returns the RecordService associated to the specified collection.
+     *
+     * @param  {string} idOrName
+     * @return {RecordService}
      */
-    get AuthStore(): BaseAuthStore;
     /**
-     * @deprecated Legacy alias for `this.settings`.
+     * Returns the RecordService associated to the specified collection.
+     *
+     * @param  {string} idOrName
+     * @return {RecordService}
      */
-    get Settings(): Settings;
+    collection(idOrName: string): RecordService;
     /**
-     * @deprecated Legacy alias for `this.admins`.
+     * Globally enable or disable auto cancellation for pending duplicated requests.
      */
-    get Admins(): Admins;
     /**
-     * @deprecated Legacy alias for `this.users`.
+     * Globally enable or disable auto cancellation for pending duplicated requests.
      */
-    get Users(): Users;
-    /**
-     * @deprecated Legacy alias for `this.collections`.
-     */
-    get Collections(): Collections;
-    /**
-     * @deprecated Legacy alias for `this.records`.
-     */
-    get Records(): Records;
-    /**
-     * @deprecated Legacy alias for `this.logs`.
-     */
-    get Logs(): Logs;
-    /**
-     * @deprecated Legacy alias for `this.realtime`.
-     */
-    get Realtime(): Realtime;
+    autoCancellation(enable: boolean): Client;
     /**
      * Cancels single request by its cancellation key.
      */
@@ -768,6 +942,13 @@ declare class Client {
     send(path: string, reqConfig: {
         [key: string]: any;
     }): Promise<any>;
+    /**
+     * Builds and returns an absolute record file url for the provided filename.
+     */
+    /**
+     * Builds and returns an absolute record file url for the provided filename.
+     */
+    getFileUrl(record: Record, filename: string, queryParams?: FileQueryParams): string;
     /**
      * Builds a full client url by safely concatenating the provided path.
      */

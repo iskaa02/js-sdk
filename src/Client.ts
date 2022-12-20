@@ -1,14 +1,16 @@
 import ClientResponseError from '@/ClientResponseError';
 import BaseAuthStore       from '@/stores/BaseAuthStore';
 import LocalAuthStore      from '@/stores/LocalAuthStore';
-import Settings            from '@/services/Settings';
-import Admins              from '@/services/Admins';
-import Users               from '@/services/Users';
-import Views               from './services/Views';
-import Collections         from '@/services/Collections';
-import Records             from '@/services/Records';
-import Logs                from '@/services/Logs';
-import Realtime            from '@/services/Realtime';
+import ViewService               from './services/ViewService';
+import SettingsService     from '@/services/SettingsService';
+import AdminService        from '@/services/AdminService';
+import RecordService       from '@/services/RecordService';
+import CollectionService   from '@/services/CollectionService';
+import LogService          from '@/services/LogService';
+import RealtimeService     from '@/services/RealtimeService';
+import HealthService       from '@/services/HealthService';
+import Record              from '@/models/Record';
+import { FileQueryParams } from '@/services/utils/QueryParams';
 
 /**
  * PocketBase JS Client.
@@ -77,29 +79,19 @@ export default class Client {
     /**
      * An instance of the service that handles the **Settings APIs**.
      */
-    readonly settings: Settings;
+    readonly settings: SettingsService;
 
     /**
      * An instance of the service that handles the **Admin APIs**.
      */
-    readonly admins: Admins;
-
-    /**
-     * An instance of the service that handles the **User APIs**.
-     */
-    readonly users: Users;
+    readonly admins: AdminService;
 
     /**
      * An instance of the service that handles the **Collection APIs**.
      */
-    readonly collections: Collections;
+    readonly collections: CollectionService;
 
-    /**
-     * An instance of the service that handles the **Record APIs**.
-     */
-    readonly records: Records;
-
-    readonly views: Views;
+    readonly views: ViewService;
 
     /**
      * An instance of the service that handles the **Record APIs**.
@@ -108,90 +100,63 @@ export default class Client {
     /**
      * An instance of the service that handles the **Log APIs**.
      */
-    readonly logs: Logs;
+    readonly logs: LogService;
 
     /**
      * An instance of the service that handles the **Realtime APIs**.
      */
-    readonly realtime: Realtime;
+    readonly realtime: RealtimeService;
 
-    private cancelControllers: { [key: string]: AbortController } = {}
+    /**
+     * An instance of the service that handles the **Health APIs**.
+     */
+    readonly health: HealthService;
+
+    private cancelControllers: { [key: string]: AbortController } = {};
+    private recordServices: { [key: string]: RecordService } = {};
+    private enableAutoCancellation: boolean = true;
 
     constructor(
         baseUrl = '/',
-        lang = 'en-US',
         authStore?: BaseAuthStore | null,
+        lang = 'en-US',
     ) {
         this.baseUrl   = baseUrl;
         this.lang      = lang;
         this.authStore = authStore || new LocalAuthStore();
 
         // services
-        this.admins      = new Admins(this);
-        this.users       = new Users(this);
-        this.views = new Views(this);
-        this.records     = new Records(this);
-        this.collections = new Collections(this);
-        this.logs        = new Logs(this);
-        this.settings    = new Settings(this);
-        this.realtime    = new Realtime(this);
+        this.views = new ViewService(this);
+        this.admins      = new AdminService(this);
+        this.collections = new CollectionService(this);
+        this.logs        = new LogService(this);
+        this.settings    = new SettingsService(this);
+        this.realtime    = new RealtimeService(this);
+        this.health      = new HealthService(this);
     }
 
     /**
-     * @deprecated Legacy alias for `this.authStore`.
+     * Returns the RecordService associated to the specified collection.
+     *
+     * @param  {string} idOrName
+     * @return {RecordService}
      */
-    get AuthStore(): BaseAuthStore {
-        return this.authStore;
-    };
+    collection(idOrName: string): RecordService {
+        if (!this.recordServices[idOrName]) {
+            this.recordServices[idOrName] = new RecordService(this, idOrName);
+        }
+
+        return this.recordServices[idOrName];
+    }
 
     /**
-     * @deprecated Legacy alias for `this.settings`.
+     * Globally enable or disable auto cancellation for pending duplicated requests.
      */
-    get Settings(): Settings {
-        return this.settings;
-    };
+    autoCancellation(enable: boolean): Client {
+        this.enableAutoCancellation = !!enable;
 
-    /**
-     * @deprecated Legacy alias for `this.admins`.
-     */
-    get Admins(): Admins {
-        return this.admins;
-    };
-
-    /**
-     * @deprecated Legacy alias for `this.users`.
-     */
-    get Users(): Users {
-        return this.users;
-    };
-
-    /**
-     * @deprecated Legacy alias for `this.collections`.
-     */
-    get Collections(): Collections {
-        return this.collections;
-    };
-
-    /**
-     * @deprecated Legacy alias for `this.records`.
-     */
-    get Records(): Records {
-        return this.records;
-    };
-
-    /**
-     * @deprecated Legacy alias for `this.logs`.
-     */
-    get Logs(): Logs {
-        return this.logs;
-    };
-
-    /**
-     * @deprecated Legacy alias for `this.realtime`.
-     */
-    get Realtime(): Realtime {
-        return this.realtime;
-    };
+        return this;
+    }
 
     /**
      * Cancels single request by its cancellation key.
@@ -254,18 +219,13 @@ export default class Client {
             // auth header is not explicitly set
             (typeof config?.headers?.Authorization === 'undefined')
         ) {
-            let authType = 'Admin';
-            if (typeof (this.authStore.model as any)?.verified !== 'undefined') {
-                authType = 'User'; // admins don't have verified
-            }
-
             config.headers = Object.assign({}, config.headers, {
-                'Authorization': (authType + ' ' + this.authStore.token),
+                'Authorization': this.authStore.token,
             });
         }
 
         // handle auto cancelation for duplicated pending request
-        if (config.params?.$autoCancel !== false) {
+        if (this.enableAutoCancellation && config.params?.$autoCancel !== false) {
             const cancelKey = config.params?.$cancelKey || ((config.method || 'GET') + path);
 
             // cancel previous pending requests
@@ -324,6 +284,27 @@ export default class Client {
                 // wrap to normalize all errors
                 throw new ClientResponseError(err);
             });
+    }
+
+    /**
+     * Builds and returns an absolute record file url for the provided filename.
+     */
+    getFileUrl(record: Record, filename: string, queryParams: FileQueryParams = {}): string {
+        const parts = [];
+        parts.push("api")
+        parts.push("files")
+        parts.push(encodeURIComponent(record.collectionId || record.collectionName))
+        parts.push(encodeURIComponent(record.id))
+        parts.push(encodeURIComponent(filename))
+
+        let result = this.buildUrl(parts.join('/'));
+
+        if (Object.keys(queryParams).length) {
+            const params = new URLSearchParams(queryParams);
+            result += (result.includes("?") ? "&" : "?") + params;
+        }
+
+        return result
     }
 
     /**
