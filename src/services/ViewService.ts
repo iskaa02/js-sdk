@@ -13,12 +13,13 @@ export default class Views extends CrudService<View> {
 
     /**
      * @inheritdoc */
-    baseCrudPath(): string {
-        return '/api/views';
+
+    get baseCrudPath(): string {
+        return '/api/records';
     }
 
     getRecordsFullList(viewName: string, batchSize = 100, queryParams = {}): Promise<Array<ViewRecord>> {
-        const basePath= `${this.baseCrudPath()}/${viewName}/records`
+        const basePath= `${this.baseCrudPath}/${viewName}/records`
         var result: Array<ViewRecord> = [];
 
         let request = async (page: number): Promise<Array<any>> => {
@@ -46,7 +47,7 @@ export default class Views extends CrudService<View> {
      * Returns paginated items list.
      */
     getRecordsList(viewName: string, page = 1, perPage = 30, queryParams = {}): Promise<ViewRecordListResult> {
-        const basePath= `${this.baseCrudPath()}/${viewName}/records`
+        const basePath= `${this.baseCrudPath}/${viewName}/records`
         queryParams = Object.assign({
             'page':    page,
             'perPage': perPage,

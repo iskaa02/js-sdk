@@ -1,7 +1,8 @@
-import CrudService from '@/services/utils/CrudService';
-import Collection  from '@/models/Collection';
+import Collection          from '@/models/Collection';
+import CrudService         from '@/services/utils/CrudService';
+import { BaseQueryParams } from '@/services/utils/QueryParams';
 
-export default class Collections extends CrudService<Collection> {
+export default class CollectionService extends CrudService<Collection> {
     /**
      * @inheritdoc
      */
@@ -12,7 +13,7 @@ export default class Collections extends CrudService<Collection> {
     /**
      * @inheritdoc
      */
-    baseCrudPath(): string {
+    get baseCrudPath(): string {
         return '/api/collections';
     }
 
@@ -23,8 +24,12 @@ export default class Collections extends CrudService<Collection> {
      * that are not present in the imported configuration, WILL BE DELETED
      * (including their related records data)!
      */
-    async import(collections: Array<Collection>, deleteMissing: boolean = false, queryParams = {}): Promise<true> {
-        return this.client.send(this.baseCrudPath() + '/import', {
+    async import(
+        collections: Array<Collection>,
+        deleteMissing: boolean = false,
+        queryParams: BaseQueryParams = {}
+    ): Promise<true> {
+        return this.client.send(this.baseCrudPath + '/import', {
             'method': 'PUT',
             'params': queryParams,
             'body': {

@@ -1,9 +1,9 @@
 import { cookieParse, cookieSerialize, SerializeOptions } from '@/stores/utils/cookie';
 import { isTokenExpired, getTokenPayload } from '@/stores/utils/jwt';
-import User  from '@/models/User';
+import Record  from '@/models/Record';
 import Admin from '@/models/Admin';
 
-type onChangeFunc = (token: string, model: User|Admin|null) => void;
+export type OnStoreChangeFunc = (token: string, model: Record|Admin|null) => void;
 
 const defaultCookieKey = 'pb_auth';
 
@@ -13,9 +13,9 @@ const defaultCookieKey = 'pb_auth';
  */
 export default abstract class BaseAuthStore {
     protected baseToken: string = '';
-    protected baseModel: User|Admin|null = null;
+    protected baseModel: Record|Admin|null = null;
 
-    private _onChangeCallbacks: Array<onChangeFunc> = [];
+    private _onChangeCallbacks: Array<OnStoreChangeFunc> = [];
 
     /**
      * Retrieves the stored token (if any).
@@ -27,12 +27,12 @@ export default abstract class BaseAuthStore {
     /**
      * Retrieves the stored model data (if any).
      */
-    get model(): User|Admin|null {
+    get model(): Record|Admin|null {
         return this.baseModel;
     }
 
     /**
-     * Checks if the store has valid (aka. existing and unexpired) token.
+     * Loosely checks if the store has valid token (aka. existing and unexpired exp claim).
      */
     get isValid(): boolean {
         return !isTokenExpired(this.token);
@@ -41,13 +41,13 @@ export default abstract class BaseAuthStore {
     /**
      * Saves the provided new token and model data in the auth store.
      */
-    save(token: string, model: User|Admin|null): void {
+    save(token: string, model: Record|Admin|null): void {
         this.baseToken = token || '';
 
         // normalize the model instance
         if (model !== null && typeof model === 'object') {
-            this.baseModel = (model as any)?.verified !== 'undefined' ?
-                new User(model) : new Admin(model);
+            this.baseModel = typeof (model as any).collectionId !== 'undefined' ?
+                new Record(model) : new Admin(model);
         } else {
             this.baseModel = null;
         }
@@ -67,6 +67,26 @@ export default abstract class BaseAuthStore {
     /**
      * Parses the provided cookie string and updates the store state
      * with the cookie's token and model data.
+     *
+     * NB! This function doesn't validate the token or its data.
+     * Usually this isn't a concern if you are interacting only with the
+     * PocketBase API because it has the proper server-side security checks in place,
+     * but if you are using the store `isValid` state for permission controls
+     * in a node server (eg. SSR), then it is recommended to call `authRefresh()`
+     * after loading the cookie to ensure an up-to-date token and model state.
+     * For example:
+     *
+     * ```js
+     * pb.authStore.loadFromCookie("cookie string...");
+     *
+     * try {
+     *     // get an up-to-date auth store state by veryfing and refreshing the loaded auth model (if any)
+     *     pb.authStore.isValid && await pb.collection('users').authRefresh();
+     * } catch (_) {
+     *     // clear the auth store on failed refresh
+     *     pb.authStore.clear();
+     * }
+     * ```
      */
     loadFromCookie(cookie: string, key = defaultCookieKey): void {
         const rawData = cookieParse(cookie || '')[key] || '';
@@ -80,7 +100,7 @@ export default abstract class BaseAuthStore {
             }
         } catch (_) {}
 
-        this.save(data.token || '', data.model || {});
+        this.save(data.token || '', data.model || null);
     }
 
     /**
@@ -129,8 +149,10 @@ export default abstract class BaseAuthStore {
         // strip down the model data to the bare minimum
         if (rawData.model && resultLength > 4096) {
             rawData.model = {id: rawData?.model?.id, email: rawData?.model?.email};
-            if (this.model instanceof User) {
-                rawData.model.verified = this.model.verified;
+            if (this.model instanceof Record) {
+                rawData.model.username     = this.model.username;
+                rawData.model.verified     = this.model.verified;
+                rawData.model.collectionId = this.model.collectionId;
             }
             result = cookieSerialize(key, JSON.stringify(rawData), options);
         }
@@ -146,7 +168,7 @@ export default abstract class BaseAuthStore {
      *
      * Returns a removal function that you could call to "unsubscribe" from the changes.
      */
-    onChange(callback: onChangeFunc, fireImmediately = false): () => void {
+    onChange(callback: OnStoreChangeFunc, fireImmediately = false): () => void {
         this._onChangeCallbacks.push(callback);
 
         if (fireImmediately) {
