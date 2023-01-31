@@ -15,7 +15,7 @@ export default class Views extends CrudService<View> {
      * @inheritdoc */
 
     get baseCrudPath(): string {
-        return '/api/records';
+        return '/api/views';
     }
 
     getRecordsFullList(viewName: string, batchSize = 100, queryParams = {}): Promise<Array<ViewRecord>> {
